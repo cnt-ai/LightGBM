@@ -8,9 +8,8 @@ on:
     - cron: '0 8 * * *'
 
 env:
-  CONDA_ENV: test-env
   OS_NAME: 'linux'
-  PYTHON_VERSION: '3.11'
+  PYTHON_VERSION: '3.12'
   TASK: 'check-links'
 
 jobs:
