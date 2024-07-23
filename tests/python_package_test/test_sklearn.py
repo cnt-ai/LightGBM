@@ -719,6 +719,25 @@ def test_predict():
     with pytest.raises(AssertionError):
         np.testing.assert_allclose(res_engine, res_sklearn_params)
 
+    # Test multiclass binary classification
+    num_samples = 100
+    num_classes = 2
+    X_train = np.linspace(start=0, stop=10, num=num_samples * 3).reshape(num_samples, 3)
+    y_train = np.concatenate([np.zeros(int(num_samples / 2 - 10)), np.ones(int(num_samples / 2 + 10))])
+
+    gbm = lgb.train({"objective": "multiclass", "num_class": num_classes, "verbose": -1}, lgb.Dataset(X_train, y_train))
+    clf = lgb.LGBMClassifier(objective="multiclass", num_classes=num_classes).fit(X_train, y_train)
+
+    res_engine = gbm.predict(X_train)
+    res_sklearn = clf.predict_proba(X_train)
+
+    assert res_engine.shape == (num_samples, num_classes)
+    assert res_sklearn.shape == (num_samples, num_classes)
+    np.testing.assert_allclose(res_engine, res_sklearn)
+
+    res_class_sklearn = clf.predict(X_train)
+    np.testing.assert_allclose(res_class_sklearn, y_train)
+
 
 def test_predict_with_params_from_init():
     X, y = load_iris(return_X_y=True)
@@ -1035,6 +1054,20 @@ def test_metrics():
     assert len(gbm.evals_result_["training"]) == 1
     assert "binary_logloss" in gbm.evals_result_["training"]
 
+    # the evaluation metric changes to multiclass metric even num classes is 2 for multiclass objective
+    gbm = lgb.LGBMClassifier(objective="multiclass", num_classes=2, **params).fit(
+        eval_metric="binary_logloss", **params_fit
+    )
+    assert len(gbm._evals_result["training"]) == 1
+    assert "multi_logloss" in gbm.evals_result_["training"]
+
+    # the evaluation metric changes to multiclass metric even num classes is 2 for ovr objective
+    gbm = lgb.LGBMClassifier(objective="ovr", num_classes=2, **params).fit(eval_metric="binary_error", **params_fit)
+    assert gbm.objective_ == "ovr"
+    assert len(gbm.evals_result_["training"]) == 2
+    assert "multi_logloss" in gbm.evals_result_["training"]
+    assert "multi_error" in gbm.evals_result_["training"]
+
 
 def test_multiple_eval_metrics():
     X, y = load_breast_cancer(return_X_y=True)
@@ -1288,6 +1321,19 @@ def test_max_depth_warning_is_never_raised(capsys, estimator_class, max_depth):
     else:
         estimator_class(**params).fit(X, y)
     assert "Provided parameters constrain tree depth" not in capsys.readouterr().out
+
+
+def test_verbosity_is_respected_when_using_custom_objective(capsys):
+    X, y = make_synthetic_regression()
+    params = {
+        "objective": objective_ls,
+        "nonsense": 123,
+        "num_leaves": 3,
+    }
+    lgb.LGBMRegressor(**params, verbosity=-1, n_estimators=1).fit(X, y)
+    assert capsys.readouterr().out == ""
+    lgb.LGBMRegressor(**params, verbosity=0, n_estimators=1).fit(X, y)
+    assert "[LightGBM] [Warning] Unknown parameter: nonsense" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("estimator_class", [lgb.LGBMModel, lgb.LGBMClassifier, lgb.LGBMRegressor, lgb.LGBMRanker])

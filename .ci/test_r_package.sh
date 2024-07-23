@@ -104,6 +104,18 @@ if [[ $OS_NAME == "macos" ]]; then
     sudo installer \
         -pkg $(pwd)/R.pkg \
         -target / || exit 1
+
+    # install tidy v5.8.0
+    # ref: https://groups.google.com/g/r-sig-mac/c/7u_ivEj4zhM
+    TIDY_URL=https://github.com/htacg/tidy-html5/releases/download/5.8.0/tidy-5.8.0-macos-x86_64+arm64.pkg
+    curl -sL ${TIDY_URL} -o tidy.pkg
+    sudo installer \
+        -pkg $(pwd)/tidy.pkg \
+        -target /
+
+    # ensure that this newer version of 'tidy' is used by 'R CMD check'
+    # ref: https://cran.r-project.org/doc/manuals/R-exts.html#Checking-packages
+    export R_TIDYCMD=/usr/local/bin/tidy
 fi
 
 # fix for issue where CRAN was not returning {lattice} and {evaluate} when using R 3.6
@@ -137,8 +149,8 @@ fi
 Rscript --vanilla -e "options(install.packages.compile.from.source = '${compile_from_source}'); install.packages(${packages}, repos = '${CRAN_MIRROR}', lib = '${R_LIB_PATH}', dependencies = c('Depends', 'Imports', 'LinkingTo'), Ncpus = parallel::detectCores())" || exit 1
 
 cd "${BUILD_DIRECTORY}"
-
-PKG_TARBALL="lightgbm_*.tar.gz"
+PKG_TARBALL="lightgbm_$(head -1 VERSION.txt).tar.gz"
+BUILD_LOG_FILE="lightgbm.Rcheck/00install.out"
 LOG_FILE_NAME="lightgbm.Rcheck/00check.log"
 if [[ $R_BUILD_TYPE == "cmake" ]]; then
     Rscript build_r.R -j4 --skip-install || exit 1
@@ -197,21 +209,10 @@ elif [[ $R_BUILD_TYPE == "cran" ]]; then
     cd ${R_CMD_CHECK_DIR}
 fi
 
-# fails tests if either ERRORs or WARNINGs are thrown by
-# R CMD CHECK
-check_succeeded="yes"
-R CMD check ${PKG_TARBALL} \
-    --as-cran \
-    --run-donttest \
-|| check_succeeded="no"
-
-echo "R CMD check build logs:"
-BUILD_LOG_FILE=lightgbm.Rcheck/00install.out
-cat ${BUILD_LOG_FILE}
-
-if [[ $check_succeeded == "no" ]]; then
-    exit 1
-fi
+declare -i allowed_notes=0
+bash "${BUILD_DIRECTORY}/.ci/run-r-cmd-check.sh" \
+    "${PKG_TARBALL}" \
+    "${allowed_notes}"
 
 # ensure 'grep --count' doesn't cause failures
 set +e
@@ -230,16 +231,10 @@ if [[ $R_BUILD_TYPE == "cmake" ]]; then
         cat $BUILD_LOG_FILE \
         | grep --count "R version passed into FindLibR.cmake: ${R_VERSION}"
     )
-    if [[ $used_correct_r_version -ne 1 ]]; then
+    if [[ $passed_correct_r_version_to_cmake -ne 1 ]]; then
         echo "Unexpected R version was passed into cmake. Expected '${R_VERSION}'."
         exit 1
     fi
-fi
-
-
-if grep -q -E "NOTE|WARNING|ERROR" "$LOG_FILE_NAME"; then
-    echo "NOTEs, WARNINGs, or ERRORs have been found by R CMD check"
-    exit 1
 fi
 
 # this check makes sure that CI builds of the package actually use OpenMP
@@ -263,20 +258,25 @@ fi
 
 # this check makes sure that CI builds of the package
 # actually use MM_PREFETCH preprocessor definition
-if [[ $R_BUILD_TYPE == "cran" ]]; then
-    mm_prefetch_working=$(
-        cat $BUILD_LOG_FILE \
-        | grep --count -E "checking whether MM_PREFETCH work.*yes"
-    )
-else
-    mm_prefetch_working=$(
-        cat $BUILD_LOG_FILE \
-        | grep --count -E ".*Performing Test MM_PREFETCH - Success"
-    )
-fi
-if [[ $mm_prefetch_working -ne 1 ]]; then
-    echo "MM_PREFETCH test was not passed"
-    exit 1
+#
+# _mm_prefetch will not work on arm64 architecture
+# ref: https://github.com/microsoft/LightGBM/issues/4124
+if [[ $ARCH != "arm64" ]]; then
+    if [[ $R_BUILD_TYPE == "cran" ]]; then
+        mm_prefetch_working=$(
+            cat $BUILD_LOG_FILE \
+            | grep --count -E "checking whether MM_PREFETCH work.*yes"
+        )
+    else
+        mm_prefetch_working=$(
+            cat $BUILD_LOG_FILE \
+            | grep --count -E ".*Performing Test MM_PREFETCH - Success"
+        )
+    fi
+    if [[ $mm_prefetch_working -ne 1 ]]; then
+        echo "MM_PREFETCH test was not passed"
+        exit 1
+    fi
 fi
 
 # this check makes sure that CI builds of the package
