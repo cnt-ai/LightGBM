@@ -3,7 +3,7 @@
 # [description]
 #
 #     Prepare a source distribution (sdist) or built distribution (wheel)
-#     of the Python package, and optionally install it.
+#     of the Python-package, and optionally install it.
 #
 # [usage]
 #
@@ -13,10 +13,10 @@
 #     # build wheel and put it in dist/
 #     sh ./build-python.sh bdist_wheel [OPTIONS]
 #
-#     # compile lib_lightgbm and install the Python package wrapping it
+#     # compile lib_lightgbm and install the Python-package wrapping it
 #     sh ./build-python.sh install [OPTIONS]
 #
-#     # install the Python package using a pre-compiled lib_lightgbm
+#     # install the Python-package using a pre-compiled lib_lightgbm
 #     # (assumes lib_lightgbm.{dll,so} is located at the root of the repo)
 #     sh ./build-python.sh install --precompile
 #
@@ -184,7 +184,7 @@ done
 pip install --prefer-binary 'build>=0.10.0'
 
 # create a new directory that just contains the files needed
-# to build the Python package
+# to build the Python-package
 create_isolated_source_dir() {
     rm -rf \
         ./lightgbm-python \
@@ -359,14 +359,19 @@ fi
 if test "${INSTALL}" = true; then
     echo "--- installing lightgbm ---"
     cd ../dist
+    if test "${BUILD_WHEEL}" = true; then
+        PACKAGE_NAME="lightgbm*.whl"
+    else
+        PACKAGE_NAME="lightgbm*.tar.gz"
+    fi
     # ref for use of '--find-links': https://stackoverflow.com/a/52481267/3986677
     pip install \
         ${PIP_INSTALL_ARGS} \
-        --ignore-installed \
+        --force-reinstall \
         --no-cache-dir \
         --no-deps \
         --find-links=. \
-        lightgbm
+        ${PACKAGE_NAME}
     cd ../
 fi
 
