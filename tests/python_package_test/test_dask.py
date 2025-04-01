@@ -5,7 +5,6 @@ import inspect
 import socket
 from itertools import groupby
 from os import getenv
-from platform import machine
 from sys import platform
 from urllib.parse import urlparse
 
@@ -16,10 +15,8 @@ import lightgbm as lgb
 
 from .utils import sklearn_multiclass_custom_objective
 
-if not platform.startswith("linux"):
-    pytest.skip("lightgbm.dask is currently supported in Linux environments", allow_module_level=True)
-if machine() != "x86_64":
-    pytest.skip("lightgbm.dask tests are currently skipped on some architectures like arm64", allow_module_level=True)
+if platform in {"cygwin", "win32"}:
+    pytest.skip("lightgbm.dask is not currently supported on Windows", allow_module_level=True)
 if not lgb.compat.DASK_INSTALLED:
     pytest.skip("Dask is not installed", allow_module_level=True)
 
